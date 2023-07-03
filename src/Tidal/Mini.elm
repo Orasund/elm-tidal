@@ -1,11 +1,14 @@
-module Tidal.Mini exposing (TidalPattern(..), toString)
+module Tidal.Mini exposing (TidalPattern(..), parser, toString)
+
+import Parser exposing ((|.), (|=), Parser, Trailing(..))
+import Set
 
 
 type TidalPattern
     = Rest
     | Play String
     | Sometimes TidalPattern
-    | Fast Float TidalPattern
+    | Faster Float TidalPattern
     | Elongate Int TidalPattern
     | Euclid (List Int) TidalPattern
     | Stack (List TidalPattern)
@@ -25,7 +28,7 @@ toString p0 =
         Sometimes pattern ->
             toString pattern ++ "?"
 
-        Fast amount pattern ->
+        Faster amount pattern ->
             toString pattern
                 ++ "*"
                 ++ String.fromFloat amount
@@ -67,3 +70,72 @@ toString p0 =
                         |> String.join " | "
                    )
                 ++ "]"
+
+
+parser : Parser TidalPattern
+parser =
+    let
+        variable =
+            Parser.variable
+                { start = Char.isAlphaNum
+                , inner = Char.isAlphaNum
+                , reserved = Set.empty
+                }
+
+        listParser list =
+            Parser.succeed identity
+                |. Parser.spaces
+                |= Parser.oneOf
+                    [ elemParser
+                        |> Parser.andThen (\a -> a :: list |> listParser)
+                    , Parser.succeed
+                        (case list of
+                            [ a ] ->
+                                a
+
+                            _ ->
+                                List.reverse list |> Sequence
+                        )
+                    ]
+
+        modifier p =
+            Parser.succeed identity
+                |= Parser.oneOf
+                    [ Parser.succeed (Sometimes p)
+                        |. Parser.symbol "?"
+                        |> Parser.andThen modifier
+                    , Parser.succeed (\float -> Faster float p)
+                        |. Parser.symbol "*"
+                        |= Parser.float
+                        |> Parser.andThen modifier
+                    , Parser.succeed (\int -> Elongate int p)
+                        |. Parser.symbol "@"
+                        |= Parser.int
+                        |> Parser.andThen modifier
+                    , Parser.succeed (\list -> Euclid list p)
+                        |= Parser.sequence
+                            { start = "("
+                            , separator = ","
+                            , spaces = Parser.spaces
+                            , item = Parser.int
+                            , trailing = Forbidden
+                            , end = ")"
+                            }
+                    , Parser.succeed p
+                    ]
+
+        elemParser =
+            Parser.oneOf
+                [ Parser.succeed identity
+                    |. Parser.symbol "["
+                    |= Parser.lazy (\() -> parser)
+                    |. Parser.symbol "]"
+                , Parser.succeed Rest
+                    |. Parser.symbol "~"
+                , Parser.succeed Play
+                    |= variable
+                ]
+                |> Parser.andThen modifier
+    in
+    elemParser
+        |> Parser.andThen (\a -> listParser [ a ])
