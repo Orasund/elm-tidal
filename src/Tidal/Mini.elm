@@ -84,7 +84,6 @@ parser =
 
         listParser list =
             Parser.succeed identity
-                |. Parser.spaces
                 |= Parser.oneOf
                     [ elemParser
                         |> Parser.andThen (\a -> a :: list |> listParser)
@@ -97,6 +96,25 @@ parser =
                                 List.reverse list |> Sequence
                         )
                     ]
+
+        chooseParser list =
+            Parser.oneOf
+                [ (Parser.succeed identity
+                    |. Parser.symbol "|"
+                    |. Parser.spaces
+                    |= elemParser
+                  )
+                    |> Parser.andThen (\a -> listParser [ a ])
+                    |> Parser.andThen (\a -> a :: list |> chooseParser)
+                , Parser.succeed
+                    (case list of
+                        [ a ] ->
+                            a
+
+                        _ ->
+                            List.reverse list |> Choose
+                    )
+                ]
 
         modifier p =
             Parser.succeed identity
@@ -125,17 +143,21 @@ parser =
                     ]
 
         elemParser =
-            Parser.oneOf
-                [ Parser.succeed identity
-                    |. Parser.symbol "["
-                    |= Parser.lazy (\() -> parser)
-                    |. Parser.symbol "]"
-                , Parser.succeed Rest
-                    |. Parser.symbol "~"
-                , Parser.succeed Play
-                    |= variable
-                ]
+            (Parser.succeed identity
+                |= Parser.oneOf
+                    [ Parser.succeed identity
+                        |. Parser.symbol "["
+                        |= Parser.lazy (\() -> parser)
+                        |. Parser.symbol "]"
+                    , Parser.succeed Rest
+                        |. Parser.symbol "~"
+                    , Parser.succeed Play
+                        |= variable
+                    ]
+                |. Parser.spaces
+            )
                 |> Parser.andThen modifier
     in
     elemParser
         |> Parser.andThen (\a -> listParser [ a ])
+        |> Parser.andThen (\a -> chooseParser [ a ])

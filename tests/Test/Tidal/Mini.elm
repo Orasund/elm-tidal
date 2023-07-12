@@ -27,4 +27,6 @@ suite =
         , "d4@2" |> parsingExpect "d4@2"
         , "d4(1,2,3)" |> parsingExpect "d4(1, 2, 3)"
         , "[[[c1] d1] e1]" |> parsingExpect "[[c1 d1] e1]"
+        , "c1 | d1" |> parsingExpect "[c1 | d1]"
+        , "c1 | d1 e1 | c1" |> parsingExpect "[c1 | [d1 e1] | c1]"
         ]
