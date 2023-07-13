@@ -29,4 +29,5 @@ suite =
         , "[[[c1] d1] e1]" |> parsingExpect "[[c1 d1] e1]"
         , "c1 | d1" |> parsingExpect "[c1 | d1]"
         , "c1 | d1 e1 | c1" |> parsingExpect "[c1 | [d1 e1] | c1]"
+        , "c1 , d1 e1" |> parsingExpect "[c1, [d1 e1]]"
         ]

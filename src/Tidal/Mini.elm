@@ -116,6 +116,26 @@ parser =
                     )
                 ]
 
+        stackParser list =
+            Parser.oneOf
+                [ (Parser.succeed identity
+                    |. Parser.symbol ","
+                    |. Parser.spaces
+                    |= elemParser
+                  )
+                    |> Parser.andThen (\a -> listParser [ a ])
+                    |> Parser.andThen (\a -> chooseParser [ a ])
+                    |> Parser.andThen (\a -> a :: list |> stackParser)
+                , Parser.succeed
+                    (case list of
+                        [ a ] ->
+                            a
+
+                        _ ->
+                            List.reverse list |> Stack
+                    )
+                ]
+
         modifier p =
             Parser.succeed identity
                 |= Parser.oneOf
@@ -161,3 +181,4 @@ parser =
     elemParser
         |> Parser.andThen (\a -> listParser [ a ])
         |> Parser.andThen (\a -> chooseParser [ a ])
+        |> Parser.andThen (\a -> stackParser [ a ])
