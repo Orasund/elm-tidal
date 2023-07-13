@@ -1,4 +1,4 @@
-module Tidal.Mini exposing (TidalPattern(..), choose, degrade, elongate, euclid, faster, fromString, parser, play, replicate, rest, sequence, slower, stack, toString)
+module Tidal.Mini exposing (TidalPattern(..), choose, concatenate, degrade, elongate, euclid, faster, fromString, parser, play, replicate, rest, sequence, slower, stack, toString)
 
 import Parser exposing ((|.), (|=), Parser, Trailing(..))
 import Set
@@ -14,6 +14,7 @@ type TidalPattern
     | Euclid (List Int) TidalPattern
     | Stack (List TidalPattern)
     | Sequence (List TidalPattern)
+    | Concatenate (List TidalPattern)
     | Choose (List TidalPattern)
 
 
@@ -25,6 +26,11 @@ slower float =
 choose : List TidalPattern -> TidalPattern
 choose =
     Choose
+
+
+concatenate : List TidalPattern -> TidalPattern
+concatenate =
+    Concatenate
 
 
 sequence : List TidalPattern -> TidalPattern
@@ -132,6 +138,14 @@ toString p0 =
                    )
                 ++ "]"
 
+        Concatenate list ->
+            "<"
+                ++ (list
+                        |> List.map toString
+                        |> String.join " "
+                   )
+                ++ ">"
+
 
 fromString : String -> Maybe TidalPattern
 fromString string =
@@ -142,36 +156,14 @@ fromString string =
 parser : Parser TidalPattern
 parser =
     let
-        variable =
-            Parser.variable
-                { start = Char.isAlphaNum
-                , inner = Char.isAlphaNum
-                , reserved = Set.empty
-                }
-
-        listParser list =
-            Parser.succeed identity
-                |= Parser.oneOf
-                    [ elemParser
-                        |> Parser.andThen (\a -> a :: list |> listParser)
-                    , Parser.succeed
-                        (case list of
-                            [ a ] ->
-                                a
-
-                            _ ->
-                                List.reverse list |> Sequence
-                        )
-                    ]
-
         chooseParser list =
             Parser.oneOf
                 [ (Parser.succeed identity
                     |. Parser.symbol "|"
                     |. Parser.spaces
-                    |= elemParser
+                    |= internalElemParser
                   )
-                    |> Parser.andThen (\a -> listParser [ a ])
+                    |> Parser.andThen (\a -> internalListParser [ a ])
                     |> Parser.andThen (\a -> a :: list |> chooseParser)
                 , Parser.succeed
                     (case list of
@@ -188,9 +180,9 @@ parser =
                 [ (Parser.succeed identity
                     |. Parser.symbol ","
                     |. Parser.spaces
-                    |= elemParser
+                    |= internalElemParser
                   )
-                    |> Parser.andThen (\a -> listParser [ a ])
+                    |> Parser.andThen (\a -> internalListParser [ a ])
                     |> Parser.andThen (\a -> chooseParser [ a ])
                     |> Parser.andThen (\a -> a :: list |> stackParser)
                 , Parser.succeed
@@ -202,58 +194,119 @@ parser =
                             List.reverse list |> Stack
                     )
                 ]
-
-        modifier p =
-            Parser.succeed identity
-                |= Parser.oneOf
-                    [ Parser.succeed (Degrade p)
-                        |. Parser.symbol "?"
-                        |> Parser.andThen modifier
-                    , Parser.succeed (\float -> Faster float p)
-                        |. Parser.symbol "*"
-                        |= Parser.float
-                        |> Parser.andThen modifier
-                    , Parser.succeed (\float -> slower float p)
-                        |. Parser.symbol "/"
-                        |= Parser.float
-                        |> Parser.andThen modifier
-                    , Parser.succeed (\int -> Elongate int p)
-                        |. Parser.symbol "@"
-                        |= Parser.int
-                        |> Parser.andThen modifier
-                    , Parser.succeed (\int -> Replicate int p)
-                        |. Parser.symbol "!"
-                        |= Parser.int
-                        |> Parser.andThen modifier
-                    , Parser.succeed (\list -> Euclid list p)
-                        |= Parser.sequence
-                            { start = "("
-                            , separator = ","
-                            , spaces = Parser.spaces
-                            , item = Parser.int
-                            , trailing = Forbidden
-                            , end = ")"
-                            }
-                    , Parser.succeed p
-                    ]
-
-        elemParser =
-            (Parser.succeed identity
-                |= Parser.oneOf
-                    [ Parser.succeed identity
-                        |. Parser.symbol "["
-                        |= Parser.lazy (\() -> parser)
-                        |. Parser.symbol "]"
-                    , Parser.succeed Rest
-                        |. Parser.symbol "~"
-                    , Parser.succeed Play
-                        |= variable
-                    ]
-                |. Parser.spaces
-            )
-                |> Parser.andThen modifier
     in
-    elemParser
-        |> Parser.andThen (\a -> listParser [ a ])
+    internalElemParser
+        |> Parser.andThen (\a -> internalListParser [ a ])
         |> Parser.andThen (\a -> chooseParser [ a ])
         |> Parser.andThen (\a -> stackParser [ a ])
+
+
+
+-------------------------------------------------------------------
+--
+--   I N T E R N A L
+--
+-------------------------------------------------------------------
+
+
+internalVariableParser =
+    Parser.variable
+        { start = Char.isAlphaNum
+        , inner = Char.isAlphaNum
+        , reserved = Set.empty
+        }
+
+
+internalCatParser list =
+    Parser.succeed identity
+        |= Parser.oneOf
+            [ internalElemParser
+                |> Parser.andThen (\a -> a :: list |> internalCatParser)
+            , Parser.succeed
+                (case list of
+                    [ a ] ->
+                        a
+
+                    _ ->
+                        List.reverse list |> Concatenate
+                )
+            ]
+
+
+internalElemParser =
+    (Parser.succeed identity
+        |= Parser.oneOf
+            [ Parser.succeed identity
+                |. Parser.symbol "["
+                |= Parser.lazy (\() -> parser)
+                |. Parser.symbol "]"
+            , Parser.succeed identity
+                |. Parser.symbol "<"
+                |= Parser.lazy
+                    (\() ->
+                        internalElemParser
+                            |> Parser.andThen
+                                (\a ->
+                                    internalCatParser [ a ]
+                                )
+                    )
+                |. Parser.symbol ">"
+            , Parser.succeed Rest
+                |. Parser.symbol "~"
+            , Parser.succeed Play
+                |= internalVariableParser
+            ]
+        |. Parser.spaces
+    )
+        |> Parser.andThen internalModifierParser
+
+
+internalModifierParser p =
+    Parser.succeed identity
+        |= Parser.oneOf
+            [ Parser.succeed (Degrade p)
+                |. Parser.symbol "?"
+                |> Parser.andThen internalModifierParser
+            , Parser.succeed (\float -> Faster float p)
+                |. Parser.symbol "*"
+                |= Parser.float
+                |> Parser.andThen internalModifierParser
+            , Parser.succeed (\float -> slower float p)
+                |. Parser.symbol "/"
+                |= Parser.float
+                |> Parser.andThen internalModifierParser
+            , Parser.succeed (\int -> Elongate int p)
+                |. Parser.symbol "@"
+                |= Parser.int
+                |> Parser.andThen internalModifierParser
+            , Parser.succeed (\int -> Replicate int p)
+                |. Parser.symbol "!"
+                |= Parser.int
+                |> Parser.andThen internalModifierParser
+            , Parser.succeed (\list -> Euclid list p)
+                |= Parser.sequence
+                    { start = "("
+                    , separator = ","
+                    , spaces = Parser.spaces
+                    , item = Parser.int
+                    , trailing = Forbidden
+                    , end = ")"
+                    }
+            , Parser.succeed p
+            ]
+
+
+internalListParser list =
+    Parser.succeed identity
+        |= Parser.oneOf
+            [ internalElemParser
+                |> Parser.andThen (\a -> a :: list |> internalListParser)
+            , Parser.succeed
+                (case list of
+                    [ a ] ->
+                        a
+
+                    _ ->
+                        List.reverse list |> Sequence
+                )
+            ]
