@@ -1,4 +1,4 @@
-module Tidal.Mini exposing (TidalPattern(..), parser, toString)
+module Tidal.Mini exposing (TidalPattern(..), choose, degrade, elongate, euclid, faster, fromString, parser, play, replicate, rest, sequence, slower, stack, toString)
 
 import Parser exposing ((|.), (|=), Parser, Trailing(..))
 import Set
@@ -7,13 +7,69 @@ import Set
 type TidalPattern
     = Rest
     | Play String
-    | Sometimes TidalPattern
+    | Degrade TidalPattern
     | Faster Float TidalPattern
     | Elongate Int TidalPattern
+    | Replicate Int TidalPattern
     | Euclid (List Int) TidalPattern
     | Stack (List TidalPattern)
     | Sequence (List TidalPattern)
     | Choose (List TidalPattern)
+
+
+slower : Float -> TidalPattern -> TidalPattern
+slower float =
+    Faster (1 / float)
+
+
+choose : List TidalPattern -> TidalPattern
+choose =
+    Choose
+
+
+sequence : List TidalPattern -> TidalPattern
+sequence =
+    Sequence
+
+
+stack : List TidalPattern -> TidalPattern
+stack =
+    Stack
+
+
+euclid : { beats : Int, segments : Int, offset : Int } -> TidalPattern -> TidalPattern
+euclid args =
+    Euclid [ args.beats, args.segments, args.offset ]
+
+
+replicate : Int -> TidalPattern -> TidalPattern
+replicate =
+    Replicate
+
+
+elongate : Int -> TidalPattern -> TidalPattern
+elongate =
+    Elongate
+
+
+faster : Float -> TidalPattern -> TidalPattern
+faster =
+    Faster
+
+
+degrade : TidalPattern -> TidalPattern
+degrade =
+    Degrade
+
+
+play : String -> TidalPattern
+play =
+    Play
+
+
+rest : TidalPattern
+rest =
+    Rest
 
 
 toString : TidalPattern -> String
@@ -25,7 +81,7 @@ toString p0 =
         Play string ->
             string
 
-        Sometimes pattern ->
+        Degrade pattern ->
             toString pattern ++ "?"
 
         Faster amount pattern ->
@@ -36,6 +92,11 @@ toString p0 =
         Elongate amount pattern ->
             toString pattern
                 ++ "@"
+                ++ String.fromInt amount
+
+        Replicate amount pattern ->
+            toString pattern
+                ++ "!"
                 ++ String.fromInt amount
 
         Euclid list pattern ->
@@ -70,6 +131,12 @@ toString p0 =
                         |> String.join " | "
                    )
                 ++ "]"
+
+
+fromString : String -> Maybe TidalPattern
+fromString string =
+    Parser.run parser string
+        |> Result.toMaybe
 
 
 parser : Parser TidalPattern
@@ -139,15 +206,23 @@ parser =
         modifier p =
             Parser.succeed identity
                 |= Parser.oneOf
-                    [ Parser.succeed (Sometimes p)
+                    [ Parser.succeed (Degrade p)
                         |. Parser.symbol "?"
                         |> Parser.andThen modifier
                     , Parser.succeed (\float -> Faster float p)
                         |. Parser.symbol "*"
                         |= Parser.float
                         |> Parser.andThen modifier
+                    , Parser.succeed (\float -> slower float p)
+                        |. Parser.symbol "/"
+                        |= Parser.float
+                        |> Parser.andThen modifier
                     , Parser.succeed (\int -> Elongate int p)
                         |. Parser.symbol "@"
+                        |= Parser.int
+                        |> Parser.andThen modifier
+                    , Parser.succeed (\int -> Replicate int p)
+                        |. Parser.symbol "!"
                         |= Parser.int
                         |> Parser.andThen modifier
                     , Parser.succeed (\list -> Euclid list p)
