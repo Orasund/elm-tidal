@@ -11,6 +11,7 @@ type TidalPattern
     | Faster Float TidalPattern
     | Elongate Int TidalPattern
     | Replicate Int TidalPattern
+    | Polymetric (Maybe Float) TidalPattern
     | Euclid (List Int) TidalPattern
     | Stack (List TidalPattern)
     | Sequence (List TidalPattern)
@@ -146,6 +147,15 @@ toString p0 =
                    )
                 ++ ">"
 
+        Polymetric maybe elem ->
+            "{"
+                ++ toString elem
+                ++ "}"
+                ++ (maybe
+                        |> Maybe.map String.fromFloat
+                        |> Maybe.withDefault ""
+                   )
+
 
 fromString : String -> Maybe TidalPattern
 fromString string =
@@ -155,50 +165,10 @@ fromString string =
 
 parser : Parser TidalPattern
 parser =
-    let
-        chooseParser list =
-            Parser.oneOf
-                [ (Parser.succeed identity
-                    |. Parser.symbol "|"
-                    |. Parser.spaces
-                    |= internalElemParser
-                  )
-                    |> Parser.andThen (\a -> internalListParser [ a ])
-                    |> Parser.andThen (\a -> a :: list |> chooseParser)
-                , Parser.succeed
-                    (case list of
-                        [ a ] ->
-                            a
-
-                        _ ->
-                            List.reverse list |> Choose
-                    )
-                ]
-
-        stackParser list =
-            Parser.oneOf
-                [ (Parser.succeed identity
-                    |. Parser.symbol ","
-                    |. Parser.spaces
-                    |= internalElemParser
-                  )
-                    |> Parser.andThen (\a -> internalListParser [ a ])
-                    |> Parser.andThen (\a -> chooseParser [ a ])
-                    |> Parser.andThen (\a -> a :: list |> stackParser)
-                , Parser.succeed
-                    (case list of
-                        [ a ] ->
-                            a
-
-                        _ ->
-                            List.reverse list |> Stack
-                    )
-                ]
-    in
     internalElemParser
         |> Parser.andThen (\a -> internalListParser [ a ])
-        |> Parser.andThen (\a -> chooseParser [ a ])
-        |> Parser.andThen (\a -> stackParser [ a ])
+        |> Parser.andThen (\a -> internalChooseParser [ a ])
+        |> Parser.andThen (\a -> internalStackParser [ a ])
 
 
 
@@ -207,6 +177,47 @@ parser =
 --   I N T E R N A L
 --
 -------------------------------------------------------------------
+
+
+internalChooseParser list =
+    Parser.oneOf
+        [ (Parser.succeed identity
+            |. Parser.symbol "|"
+            |. Parser.spaces
+            |= internalElemParser
+          )
+            |> Parser.andThen (\a -> internalListParser [ a ])
+            |> Parser.andThen (\a -> a :: list |> internalChooseParser)
+        , Parser.succeed
+            (case list of
+                [ a ] ->
+                    a
+
+                _ ->
+                    List.reverse list |> Choose
+            )
+        ]
+
+
+internalStackParser list =
+    Parser.oneOf
+        [ (Parser.succeed identity
+            |. Parser.symbol ","
+            |. Parser.spaces
+            |= internalElemParser
+          )
+            |> Parser.andThen (\a -> internalListParser [ a ])
+            |> Parser.andThen (\a -> internalChooseParser [ a ])
+            |> Parser.andThen (\a -> a :: list |> internalStackParser)
+        , Parser.succeed
+            (case list of
+                [ a ] ->
+                    a
+
+                _ ->
+                    List.reverse list |> Stack
+            )
+        ]
 
 
 internalVariableParser =
@@ -238,10 +249,13 @@ internalElemParser =
         |= Parser.oneOf
             [ Parser.succeed identity
                 |. Parser.symbol "["
+                |. Parser.spaces
                 |= Parser.lazy (\() -> parser)
+                |. Parser.spaces
                 |. Parser.symbol "]"
             , Parser.succeed identity
                 |. Parser.symbol "<"
+                |. Parser.spaces
                 |= Parser.lazy
                     (\() ->
                         internalElemParser
@@ -250,7 +264,20 @@ internalElemParser =
                                     internalCatParser [ a ]
                                 )
                     )
+                |. Parser.spaces
                 |. Parser.symbol ">"
+            , Parser.succeed (\elem maybe -> Polymetric maybe elem)
+                |. Parser.symbol "{"
+                |. Parser.spaces
+                |= Parser.lazy (\() -> parser)
+                |. Parser.spaces
+                |. Parser.symbol "}"
+                |= Parser.oneOf
+                    [ Parser.succeed Just
+                        |. Parser.symbol "%"
+                        |= Parser.float
+                    , Parser.succeed Nothing
+                    ]
             , Parser.succeed Rest
                 |. Parser.symbol "~"
             , Parser.succeed Play

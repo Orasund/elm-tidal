@@ -27,10 +27,11 @@ suite =
         , "d4/2*2" |> parsingExpect "d4*0.5*2"
         , "d4@2" |> parsingExpect "d4@2"
         , "d4(1,2,3)" |> parsingExpect "d4(1, 2, 3)"
-        , "[[[c1] d1] e1]" |> parsingExpect "[[c1 d1] e1]"
+        , "[ [[c1] d1 ] e1 ]" |> parsingExpect "[[c1 d1] e1]"
         , "c1 | d1" |> parsingExpect "[c1 | d1]"
         , "c1 | d1 e1 | c1" |> parsingExpect "[c1 | [d1 e1] | c1]"
         , "c1 , d1 e1" |> parsingExpect "[c1, [d1 e1]]"
         , "c1 [e1 | d1 , f1 g1], a1" |> parsingExpect "[[c1 [[e1 | d1], [f1 g1]]], a1]"
-        , "<d1 c1 e1>" |> parsingExpect "<d1 c1 e1>"
+        , "< d1 c1 e1 >" |> parsingExpect "<d1 c1 e1>"
+        , "{ c1, d2 e3, {e f}}" |> parsingExpect "{[c1, [d2 e3], {[e f]}]}"
         ]
